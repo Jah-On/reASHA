@@ -1,0 +1,9 @@
+[package]
+name = "reASHA"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bluer = { version = "0.17.4", features = ["full"] }
+futures = { version = "0.3.31"}
+tokio = { version = "1.48.0", features = ["full"] }

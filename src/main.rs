@@ -1,0 +1,91 @@
+/*
+
+Author:  John Schulz
+Created: 31/12/2025
+
+*/
+
+use std::time::{self, Duration};
+use futures::{StreamExt};
+
+const ASHA_SERVICE_UUID: u16 = 0xFDF0;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    loop {
+        loop_fn().await;
+    }
+}
+
+async fn loop_fn(){
+    let Ok(session) = bluer::Session::new().await else {
+        panic!("Unable to get dbus session!");
+    };
+
+    let Ok(adapter) = session.default_adapter().await else {
+        tokio::time::sleep(Duration::from_mins(5)).await;
+        return;
+    };
+
+    let Ok(is_powered) = adapter.is_powered().await else {
+        tokio::time::sleep(Duration::from_mins(1)).await;
+        return;
+    };
+
+    if !is_powered {
+        tokio::time::sleep(Duration::from_mins(1)).await;
+        return;
+    }
+
+    let Ok(mut discover_events) = adapter.discover_devices().await else {
+        tokio::time::sleep(Duration::from_mins(1)).await;
+        return;
+    };
+
+    let Ok(_) = adapter.set_discoverable_timeout(1).await else {
+        tokio::time::sleep(Duration::from_mins(5)).await;
+        return;
+    };
+
+    println!("Discovering devices...");
+
+    let time_point = time::Instant::now();
+
+    while (time::Instant::now() - time_point) < Duration::from_secs(1) {
+        let Some(event) = discover_events.next().await else {
+            break;
+        };
+
+        let bluer::AdapterEvent::DeviceAdded(address) = event else {
+            continue;
+        };
+
+        let Ok(device) = adapter.device(address) else {
+            continue;
+        };
+
+        let Ok(services) = device.services().await else {
+            continue;
+        };
+
+        for service in services {
+            if service.id() != ASHA_SERVICE_UUID { continue; }
+
+            println!("ASHA device found...");
+        
+            let Ok(is_connected) = device.is_connected().await else {
+                break
+            };
+
+            if !is_connected {
+                let _ = device.connect().await;
+            }
+
+            break;
+        }
+    }
+
+    println!("Ending loop...");
+
+    tokio::time::sleep(Duration::from_secs(10)).await;
+}
