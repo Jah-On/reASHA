@@ -1,5 +1,7 @@
 /*
 
+Automatically reconnect ASHA Bluetooth devices
+
 Author:  John Schulz
 Created: 31/12/2025
 
@@ -7,6 +9,7 @@ Created: 31/12/2025
 
 use std::time::{self, Duration};
 use futures::{StreamExt};
+use bluer::UuidExt;
 
 const ASHA_SERVICE_UUID: u16 = 0xFDF0;
 
@@ -64,24 +67,38 @@ async fn loop_fn(){
             continue;
         };
 
-        let Ok(services) = device.services().await else {
+        let Ok(uuids) = device.uuids().await else {
             continue;
         };
 
-        for service in services {
-            if service.id() != ASHA_SERVICE_UUID { continue; }
+        let Some(uuid_list) = uuids else {
+            continue;
+        };
 
-            println!("ASHA device found...");
-        
-            let Ok(is_connected) = device.is_connected().await else {
-                break
-            };
+        let has_asha = uuid_list.iter().any(|uuid| {
+            uuid.as_u16() == Some(ASHA_SERVICE_UUID)
+        });
 
-            if !is_connected {
-                let _ = device.connect().await;
+        if !has_asha {
+            continue;
+        }
+
+        let device_name = device.name().await.ok().flatten().unwrap_or_else(|| "Unknown".to_string());
+        println!("ASHA device found: {}", device_name);
+    
+        let Ok(is_connected) = device.is_connected().await else {
+            println!("Could not check connection status");
+            continue;
+        };
+
+        if !is_connected {
+            println!("Reconnecting ...");
+            match device.connect().await {
+                Ok(_) => println!("Successfully reconnected"),
+                Err(e) => println!("Failed to reconnect: {}", e),
             }
-
-            break;
+        } else {
+            println!("Device is already connected");
         }
     }
 
