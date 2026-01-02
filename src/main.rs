@@ -7,9 +7,9 @@ Created: 31/12/2025
 
 */
 
-use std::time::{self, Duration};
-use futures::{StreamExt};
 use bluer::UuidExt;
+use futures::StreamExt;
+use std::time::{self, Duration};
 
 const ASHA_SERVICE_UUID: u16 = 0xFDF0;
 
@@ -20,7 +20,7 @@ async fn main() {
     }
 }
 
-async fn loop_fn(){
+async fn loop_fn() {
     let Ok(session) = bluer::Session::new().await else {
         panic!("Unable to get dbus session!");
     };
@@ -75,17 +75,22 @@ async fn loop_fn(){
             continue;
         };
 
-        let has_asha = uuid_list.iter().any(|uuid| {
-            uuid.as_u16() == Some(ASHA_SERVICE_UUID)
-        });
+        let has_asha = uuid_list
+            .iter()
+            .any(|uuid| uuid.as_u16() == Some(ASHA_SERVICE_UUID));
 
         if !has_asha {
             continue;
         }
 
-        let device_name = device.name().await.ok().flatten().unwrap_or_else(|| "Unknown".to_string());
+        let device_name = device
+            .name()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "Unknown".to_string());
         println!("ASHA device found: {}", device_name);
-    
+
         let Ok(is_connected) = device.is_connected().await else {
             println!("Could not check connection status");
             continue;
