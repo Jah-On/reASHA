@@ -7,9 +7,9 @@ Created: 31/12/2025
 
 */
 
-use bluer::UuidExt;
-use futures::StreamExt;
-use std::time::{self, Duration};
+use bluer::{DiscoveryFilter, UuidExt};
+use futures::{Stream, StreamExt};
+use std::time::Duration;
 
 const ASHA_SERVICE_UUID: u16 = 0xFDF0;
 
@@ -21,6 +21,11 @@ async fn main() {
 }
 
 async fn loop_fn() {
+    let filter = DiscoveryFilter {
+        transport: bluer::DiscoveryTransport::Le,
+        ..Default::default()
+    };
+
     let Ok(session) = bluer::Session::new().await else {
         panic!("Unable to get dbus session!");
     };
@@ -40,8 +45,8 @@ async fn loop_fn() {
         return;
     }
 
-    let Ok(mut discover_events) = adapter.discover_devices().await else {
-        tokio::time::sleep(Duration::from_mins(1)).await;
+    let Ok(_) = adapter.set_discovery_filter(filter).await else {
+        println!("Could not set discovery filter.");
         return;
     };
 
@@ -50,11 +55,14 @@ async fn loop_fn() {
         return;
     };
 
+    let Ok(mut discover_events) = adapter.discover_devices().await else {
+        tokio::time::sleep(Duration::from_mins(1)).await;
+        return;
+    };
+
     println!("Discovering devices...");
 
-    let time_point = time::Instant::now();
-
-    while (time::Instant::now() - time_point) < Duration::from_secs(1) {
+    while discover_events.size_hint().0 > 0 {
         let Some(event) = discover_events.next().await else {
             break;
         };
@@ -89,6 +97,7 @@ async fn loop_fn() {
             .ok()
             .flatten()
             .unwrap_or_else(|| "Unknown".to_string());
+
         println!("ASHA device found: {}", device_name);
 
         let Ok(is_connected) = device.is_connected().await else {
@@ -96,14 +105,39 @@ async fn loop_fn() {
             continue;
         };
 
-        if !is_connected {
-            println!("Reconnecting ...");
-            match device.connect().await {
-                Ok(_) => println!("Successfully reconnected"),
-                Err(e) => println!("Failed to reconnect: {}", e),
-            }
-        } else {
+        if is_connected {
             println!("Device is already connected");
+            continue;
+        }
+
+        let Ok(_) = device.set_trusted(true).await else {
+            println!("Could not set as trusted");
+            continue;
+        };
+
+        println!("Reconnecting ...");
+
+        // Continue in loop if successful
+        let Err(_) = device.connect().await else {
+            println!("Successfully reconnected");
+            continue;
+        };
+
+        let Ok(remote_address) = device.remote_address().await else {
+            println!("Could not get remote address");
+            continue;
+        };
+
+        println!("Trying alternate reconnect ...");
+
+        let Ok(device) = adapter.device(remote_address) else {
+            println!("Could create device from remote address");
+            continue;
+        };
+
+        match device.connect().await {
+            Ok(_) => println!("Successfully reconnected"),
+            Err(e) => println!("Failed to reconnect: {}", e),
         }
     }
 
