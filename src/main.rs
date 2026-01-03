@@ -7,11 +7,11 @@ Created: 31/12/2025
 
 */
 
-use bluer::{DiscoveryFilter, UuidExt};
+use bluer::{DiscoveryFilter, Uuid, UuidExt};
 use futures::{Stream, StreamExt};
 use std::time::Duration;
 
-const ASHA_SERVICE_UUID: u16 = 0xFDF0;
+const ASHA_SERVICE_U16: u16 = 0xFDF0;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -25,6 +25,8 @@ async fn loop_fn() {
         transport: bluer::DiscoveryTransport::Le,
         ..Default::default()
     };
+
+    let asha_service_uuid = Uuid::from_u16(ASHA_SERVICE_U16);
 
     let Ok(session) = bluer::Session::new().await else {
         panic!("Unable to get dbus session!");
@@ -85,7 +87,7 @@ async fn loop_fn() {
 
         let has_asha = uuid_list
             .iter()
-            .any(|uuid| uuid.as_u16() == Some(ASHA_SERVICE_UUID));
+            .any(|uuid| uuid.as_u16() == Some(ASHA_SERVICE_U16));
 
         if !has_asha {
             continue;
@@ -118,7 +120,7 @@ async fn loop_fn() {
         println!("Reconnecting ...");
 
         // Continue in loop if successful
-        let Err(_) = device.connect().await else {
+        let Err(_) = device.connect_profile(&asha_service_uuid).await else {
             println!("Successfully reconnected");
             continue;
         };
@@ -135,7 +137,7 @@ async fn loop_fn() {
             continue;
         };
 
-        match device.connect().await {
+        match device.connect_profile(&asha_service_uuid).await {
             Ok(_) => println!("Successfully reconnected"),
             Err(e) => println!("Failed to reconnect: {}", e),
         }
