@@ -119,23 +119,23 @@ async fn loop_fn() {
 
         println!("Reconnecting ...");
 
-        // Continue in loop if successful
-        let Err(_) = device.connect_profile(&asha_service_uuid).await else {
-            println!("Successfully reconnected");
-            continue;
-        };
+        // // Continue in loop if successful
+        // let Err(_) = device.connect_profile(&asha_service_uuid).await else {
+        //     println!("Successfully reconnected");
+        //     continue;
+        // };
 
-        let Ok(remote_address) = device.remote_address().await else {
-            println!("Could not get remote address");
-            continue;
-        };
+        // let Ok(remote_address) = device.remote_address().await else {
+        //     println!("Could not get remote address");
+        //     continue;
+        // };
 
-        println!("Trying alternate reconnect ...");
+        // println!("Trying alternate reconnect ...");
 
-        let Ok(device) = adapter.device(remote_address) else {
-            println!("Could create device from remote address");
-            continue;
-        };
+        // let Ok(device) = adapter.device(remote_address) else {
+        //     println!("Could create device from remote address");
+        //     continue;
+        // };
 
         match device.connect_profile(&asha_service_uuid).await {
             Ok(_) => println!("Successfully reconnected"),
