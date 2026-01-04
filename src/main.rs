@@ -25,12 +25,6 @@ const ASHA_SERVICE_U16: u16 = 0xFDF0;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    loop {
-        loop_fn().await;
-    }
-}
-
-async fn loop_fn() {
     let filter = DiscoveryFilter {
         transport: bluer::DiscoveryTransport::Le,
         rssi: None,
@@ -41,51 +35,49 @@ async fn loop_fn() {
         ..Default::default()
     };
 
-    let Ok(session) = bluer::Session::new().await else {
-        panic!("Unable to get dbus session!");
-    };
+    loop {
+        let Ok(session) = bluer::Session::new().await else {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            println!("Unable to get dbus session.");
+            continue;
+        };
 
-    let Ok(adapter) = session.default_adapter().await else {
-        tokio::time::sleep(Duration::from_mins(5)).await;
-        return;
-    };
+        let Ok(adapter) = session.default_adapter().await else {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            println!("Unable to get default adapter.");
+            continue;
+        };
 
-    let Ok(is_powered) = adapter.is_powered().await else {
-        tokio::time::sleep(Duration::from_mins(1)).await;
-        return;
-    };
+        let Ok(is_powered) = adapter.is_powered().await else {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            println!("Unable to get adapter state.");
+            continue;
+        };
 
-    if !is_powered {
-        tokio::time::sleep(Duration::from_mins(1)).await;
-        return;
+        if !is_powered {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            println!("Adapter is off.");
+            continue;
+        }
+
+        let Ok(_) = adapter.set_discovery_filter(filter.clone()).await else {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            println!("Could not set discovery filter.");
+            continue;
+        };
+
+        let Ok(discover_events) = adapter.discover_devices().await else {
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            println!("Could noy start discovery.");
+            continue;
+        };
+
+        println!("Discovering devices...");
+
+        discover_events
+            .for_each(|event| handle_event(&adapter, event))
+            .await;
     }
-
-    let Ok(_) = adapter.set_discovery_filter(filter).await else {
-        println!("Could not set discovery filter.");
-        return;
-    };
-
-    let Ok(discover_events) = adapter.discover_devices().await else {
-        tokio::time::sleep(Duration::from_mins(1)).await;
-        return;
-    };
-
-    println!("Discovering devices...");
-
-    discover_events
-        .for_each(|event| handle_event(&adapter, event))
-        .await;
-
-    // while discover_events.size_hint().0 > 0 {
-    //     let Some(event) = discover_events.next().await else {
-    //         break;
-    //     };
-
-    // }
-
-    // println!("Ending loop...");
-
-    // tokio::time::sleep(Duration::from_secs(20)).await;
 }
 
 async fn handle_event(adapter: &Adapter, event: AdapterEvent) {
@@ -94,31 +86,6 @@ async fn handle_event(adapter: &Adapter, event: AdapterEvent) {
         AdapterEvent::DeviceRemoved(address) => handle_device_removed(adapter, address).await,
         _ => return,
     }
-
-    // println!("Reconnecting ...");
-
-    // // Continue in loop if successful
-    // let Err(_) = device.connect_profile(&asha_service_uuid).await else {
-    //     println!("Successfully reconnected");
-    //     continue;
-    // };
-
-    // let Ok(remote_address) = device.remote_address().await else {
-    //     println!("Could not get remote address");
-    //     continue;
-    // };
-
-    // println!("Trying alternate reconnect ...");
-
-    // let Ok(device) = adapter.device(remote_address) else {
-    //     println!("Could create device from remote address");
-    //     continue;
-    // };
-
-    // match device.connect_profile(&asha_service_uuid).await {
-    //     Ok(_) => println!("Successfully reconnected"),
-    //     Err(e) => println!("Failed to reconnect: {}", e),
-    // }
 }
 
 async fn handle_device_added(adapter: &Adapter, address: Address) {
@@ -148,6 +115,10 @@ async fn handle_device_added(adapter: &Adapter, address: Address) {
         .ok()
         .flatten()
         .unwrap_or_else(|| "Unknown".to_string());
+
+    // if device_name != "SONNET 2" {
+    //     return;
+    // }
 
     println!("ASHA device found: {}", device_name);
 
