@@ -7,8 +7,18 @@ Created: 31/12/2025
 
 */
 
-use bluer::{DiscoveryFilter, Uuid, UuidExt};
-use futures::{Stream, StreamExt};
+use bluer::{
+    Adapter,
+    AdapterEvent,
+    Address,
+    Device,
+    DeviceEvent,
+    DeviceProperty,
+    DiscoveryFilter,
+    // Uuid,
+    UuidExt,
+};
+use futures::StreamExt;
 use std::time::Duration;
 
 const ASHA_SERVICE_U16: u16 = 0xFDF0;
@@ -23,10 +33,13 @@ async fn main() {
 async fn loop_fn() {
     let filter = DiscoveryFilter {
         transport: bluer::DiscoveryTransport::Le,
+        rssi: None,
+        discoverable: false,
+        duplicate_data: false,
+        pattern: None,
+        pathloss: None,
         ..Default::default()
     };
-
-    let asha_service_uuid = Uuid::from_u16(ASHA_SERVICE_U16);
 
     let Ok(session) = bluer::Session::new().await else {
         panic!("Unable to get dbus session!");
@@ -52,98 +65,156 @@ async fn loop_fn() {
         return;
     };
 
-    let Ok(_) = adapter.set_discoverable_timeout(1).await else {
-        tokio::time::sleep(Duration::from_mins(5)).await;
-        return;
-    };
-
-    let Ok(mut discover_events) = adapter.discover_devices().await else {
+    let Ok(discover_events) = adapter.discover_devices().await else {
         tokio::time::sleep(Duration::from_mins(1)).await;
         return;
     };
 
     println!("Discovering devices...");
 
-    while discover_events.size_hint().0 > 0 {
-        let Some(event) = discover_events.next().await else {
-            break;
-        };
+    discover_events
+        .for_each(|event| handle_event(&adapter, event))
+        .await;
 
-        let bluer::AdapterEvent::DeviceAdded(address) = event else {
-            continue;
-        };
+    // while discover_events.size_hint().0 > 0 {
+    //     let Some(event) = discover_events.next().await else {
+    //         break;
+    //     };
 
-        let Ok(device) = adapter.device(address) else {
-            continue;
-        };
+    // }
 
-        let Ok(uuids) = device.uuids().await else {
-            continue;
-        };
+    // println!("Ending loop...");
 
-        let Some(uuid_list) = uuids else {
-            continue;
-        };
+    // tokio::time::sleep(Duration::from_secs(20)).await;
+}
 
-        let has_asha = uuid_list
-            .iter()
-            .any(|uuid| uuid.as_u16() == Some(ASHA_SERVICE_U16));
-
-        if !has_asha {
-            continue;
-        }
-
-        let device_name = device
-            .name()
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "Unknown".to_string());
-
-        println!("ASHA device found: {}", device_name);
-
-        let Ok(is_connected) = device.is_connected().await else {
-            println!("Could not check connection status");
-            continue;
-        };
-
-        if is_connected {
-            println!("Device is already connected");
-            continue;
-        }
-
-        let Ok(_) = device.set_trusted(true).await else {
-            println!("Could not set as trusted");
-            continue;
-        };
-
-        println!("Reconnecting ...");
-
-        // // Continue in loop if successful
-        // let Err(_) = device.connect_profile(&asha_service_uuid).await else {
-        //     println!("Successfully reconnected");
-        //     continue;
-        // };
-
-        // let Ok(remote_address) = device.remote_address().await else {
-        //     println!("Could not get remote address");
-        //     continue;
-        // };
-
-        // println!("Trying alternate reconnect ...");
-
-        // let Ok(device) = adapter.device(remote_address) else {
-        //     println!("Could create device from remote address");
-        //     continue;
-        // };
-
-        match device.connect_profile(&asha_service_uuid).await {
-            Ok(_) => println!("Successfully reconnected"),
-            Err(e) => println!("Failed to reconnect: {}", e),
-        }
+async fn handle_event(adapter: &Adapter, event: AdapterEvent) {
+    match event {
+        AdapterEvent::DeviceAdded(address) => handle_device_added(adapter, address).await,
+        AdapterEvent::DeviceRemoved(address) => handle_device_removed(adapter, address).await,
+        _ => return,
     }
 
-    println!("Ending loop...");
+    // println!("Reconnecting ...");
 
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    // // Continue in loop if successful
+    // let Err(_) = device.connect_profile(&asha_service_uuid).await else {
+    //     println!("Successfully reconnected");
+    //     continue;
+    // };
+
+    // let Ok(remote_address) = device.remote_address().await else {
+    //     println!("Could not get remote address");
+    //     continue;
+    // };
+
+    // println!("Trying alternate reconnect ...");
+
+    // let Ok(device) = adapter.device(remote_address) else {
+    //     println!("Could create device from remote address");
+    //     continue;
+    // };
+
+    // match device.connect_profile(&asha_service_uuid).await {
+    //     Ok(_) => println!("Successfully reconnected"),
+    //     Err(e) => println!("Failed to reconnect: {}", e),
+    // }
+}
+
+async fn handle_device_added(adapter: &Adapter, address: Address) {
+    let Ok(device) = adapter.device(address) else {
+        return;
+    };
+
+    let Ok(uuids) = device.uuids().await else {
+        return;
+    };
+
+    let Some(uuid_list) = uuids else {
+        return;
+    };
+
+    let has_asha = uuid_list
+        .iter()
+        .any(|uuid| uuid.as_u16() == Some(ASHA_SERVICE_U16));
+
+    if !has_asha {
+        return;
+    }
+
+    let device_name = device
+        .name()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    println!("ASHA device found: {}", device_name);
+
+    let Ok(device_events) = device.events().await else {
+        return;
+    };
+
+    device_events
+        .for_each(|DeviceEvent::PropertyChanged(event)| handle_device_change(&device, event))
+        .await;
+}
+
+async fn handle_device_removed(adapter: &Adapter, address: Address) {
+    let Ok(device) = adapter.device(address) else {
+        return;
+    };
+
+    let device_name = device
+        .name()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    println!("Device removed: {}", device_name);
+}
+
+async fn handle_device_change(device: &Device, property: DeviceProperty) {
+    let Ok(device_name) = device.name().await else {
+        return;
+    };
+
+    let adjusted_name = device_name.unwrap_or("Unknown".to_string());
+
+    println!("{:?} for {} changed...", property, adjusted_name);
+
+    match property {
+        DeviceProperty::ManufacturerData(_) => {}
+        DeviceProperty::Rssi(_) => {}
+        _ => return,
+    }
+
+    let Ok(is_connected) = device.is_connected().await else {
+        return;
+    };
+
+    if is_connected {
+        println!("{} already connected.", adjusted_name);
+        return;
+    }
+
+    let Ok(rssi) = device.rssi().await else {
+        return;
+    };
+
+    if rssi == None {
+        println!("RSSI is None, is the device off?");
+        return;
+    }
+
+    println!("Reconnecting device...");
+
+    // let asha_uuid = Uuid::from_u16(ASHA_SERVICE_U16);
+    // device.connect_profile(&asha_uuid)
+
+    match device.connect().await {
+        Ok(_) => println!("Successfully reconnected."),
+        Err(e) => println!("Failed with error: {}", e),
+    }
 }
