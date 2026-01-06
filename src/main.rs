@@ -7,14 +7,7 @@ Created: 31/12/2025
 
 */
 
-use bluer::{
-    Adapter,
-    AdapterEvent,
-    Address,
-    DiscoveryFilter,
-    // Uuid,
-    UuidExt,
-};
+use bluer::{Adapter, AdapterEvent, Address, DiscoveryFilter, Uuid, UuidExt};
 use futures::StreamExt;
 use mpris::{PlaybackStatus, PlayerFinder};
 use std::{
@@ -126,6 +119,8 @@ async fn handle_event(playing: &Arc<AtomicBool>, adapter: &Adapter, event: Adapt
 }
 
 async fn handle_device_added(playing: &Arc<AtomicBool>, adapter: &Adapter, address: Address) {
+    let asha_profile = Uuid::from_u16(ASHA_SERVICE_U16);
+
     let Ok(device) = adapter.device(address) else {
         return;
     };
@@ -143,7 +138,7 @@ async fn handle_device_added(playing: &Arc<AtomicBool>, adapter: &Adapter, addre
         .any(|uuid| uuid.as_u16() == Some(ASHA_SERVICE_U16));
 
     if !has_asha {
-        return;
+        // return;
     }
 
     let device_name = device
@@ -153,9 +148,9 @@ async fn handle_device_added(playing: &Arc<AtomicBool>, adapter: &Adapter, addre
         .flatten()
         .unwrap_or_else(|| "Unknown".to_string());
 
-    // if device_name != "SONNET 2" {
-    //     return;
-    // }
+    if device_name != "SONNET 2" {
+        return;
+    }
 
     println!("ASHA device found: {}", device_name);
 
@@ -178,7 +173,7 @@ async fn handle_device_added(playing: &Arc<AtomicBool>, adapter: &Adapter, addre
                 }
             }
 
-            match device.connect().await {
+            match device.connect_profile(&asha_profile).await {
                 Ok(_) => println!("Connected successfully."),
                 Err(_) => println!("Could not connect to device."),
             }
